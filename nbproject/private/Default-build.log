@@ -1,0 +1,6 @@
+cc -MMD -Wall   -c -o rx.o rx.c
+cc -MMD -Wall   -c -o device.o device.c
+cc -MMD -Wall   -c -o sched.o sched.c
+cc   rx.o device.o sched.o  -lasound -lopus -lortp -o rx
+cc -MMD -Wall   -c -o tx.o tx.c
+cc   tx.o device.o sched.o  -lasound -lopus -lortp -o tx
