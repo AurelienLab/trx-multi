@@ -20,7 +20,8 @@ void commListenServ(SOCKET sock, int nb_slot, Slot* clients);
 int close_all_sockets(SOCKET sock, Slot* clients, int nbSlots);
 
 SOCKET commInitClient(const char *ipaddress);
-int ask_slot(SOCKET sock, int wait);
-void commListenClient(SOCKET sock);
+int ask_slot(SOCKET sock);
+void end_connection(SOCKET sock);
+int commListenClient(SOCKET sock);
 #endif /* MULTI_H */
 

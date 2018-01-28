@@ -156,7 +156,7 @@ static void usage(FILE *fd)
 		DEFAULT_PORT);
 	fprintf(fd, "  -j <ms>     Jitter buffer (default %d milliseconds)\n",
 		DEFAULT_JITTER);
-        fprintf(fd, "  -i <n>      Amount of receiver instances lauch (default % instances)\n",
+        fprintf(fd, "  -i <n>      Amount of receiver instances launch (default % instances)\n",
                 DEFAULT_INSTANCES);
 
 	fprintf(fd, "\nEncoding parameters (must match sender):\n");
@@ -300,8 +300,11 @@ int main(int argc, char *argv[])
 	    
 	}
 	SOCKET mainSock = commInitServ(instances);
-	commListenServ(mainSock, (int)instances, slots);
-	close_all_sockets(mainSock, slots, (int)instances);
+	if(mainSock > 0) {
+	    commListenServ(mainSock, instances, slots);
+	}
+	fprintf(stdout, "Fermeture du serveur");
+	close_all_sockets(mainSock, slots, instances);
 	
 	for(i=0;i<instances;i++) { //fermeture de toutes les sessions
 	    kill(slots[i].pid, SIGTERM);

@@ -155,6 +155,8 @@ static void usage(FILE *fd)
 	fprintf(fd, "  -v <n>      Verbosity level (default %d)\n",
 		DEFAULT_VERBOSE);
 	fprintf(fd, "  -D <file>   Run as a daemon, writing process ID to the given file\n");
+	fprintf(fd, "  -w          If no slot available on the server, wait in wait list (default %s)\n", 
+		DEFAULT_CLIENT_WAIT ? "ENABLED" : "DISABLED");
 
 	fprintf(fd, "\nAllowed frame sizes (-f) are defined by the Opus codec. For example,\n"
 		"at 48000Hz the permitted values are 120, 240, 480 or 960.\n");
@@ -187,7 +189,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int c;
 
-		c = getopt(argc, argv, "b:c:d:f:h:m:p:r:v:D:");
+		c = getopt(argc, argv, "b:c:d:f:h:m:p:r:v:D:w");
 		if (c == -1)
 			break;
 
@@ -222,72 +224,92 @@ int main(int argc, char *argv[])
 		case 'D':
 			pid = optarg;
 			break;
+		case 'w':
+		        wait = 1;
+			break;
 		default:
 			usage(stderr);
 			return -1;
 		}
 	}
-
-	encoder = opus_encoder_create(rate, channels, OPUS_APPLICATION_AUDIO,
-				&error);
-	if (encoder == NULL) {
-		fprintf(stderr, "opus_encoder_create: %s\n",
-			opus_strerror(error));
-		return -1;
-	}
-
-	bytes_per_frame = kbps * 1024 * frame / rate / 8;
-
+	
 	/* Follow the RFC, payload 0 has 8kHz reference rate */
 	SOCKET mainSock = commInitClient(addr);
-	int p = ask_slot(mainSock, wait);
-	if(p > 0) {
-	    port = p;
-	    txpid = fork();
-	    fprintf(stdout, "Connecté au serveur %s:%d\n", addr, p);
-	    if(txpid == -1) {
-		/* Erreur */
-	    }
-	    else if(txpid == 0) { //On est dans le processus fils
-		ts_per_frame = frame * 8000 / rate;
-
-		ortp_init();
-		ortp_scheduler_init();
-		ortp_set_log_level_mask(ORTP_WARNING|ORTP_ERROR);
-		session = create_rtp_send(addr, port);
-		assert(session != NULL);
-
-		r = snd_pcm_open(&snd, device, SND_PCM_STREAM_CAPTURE, 0);
-		if (r < 0) {
-			aerror("snd_pcm_open", r);
-			return -1;
+	int p = ask_slot(mainSock);
+	do {
+	    if(p > 0) { //La connexion retourne un port
+		port = p;
+		txpid = fork();
+		fprintf(stdout, "Connecté au serveur %s:%d\n", addr, p);
+		if(txpid == -1) {
+		    /* Erreur */
 		}
-		if (set_alsa_hw(snd, rate, channels, buffer * 1000) == -1)
-			return -1;
-		if (set_alsa_sw(snd) == -1)
-			return -1;
+		else if(txpid == 0) { //On est dans le processus fils
+		    encoder = opus_encoder_create(rate, channels, OPUS_APPLICATION_AUDIO,
+				    &error);
+		    if (encoder == NULL) {
+			    fprintf(stderr, "opus_encoder_create: %s\n",
+				    opus_strerror(error));
+			    return -1;
+		    }
 
-		if (pid)
-			go_daemon(pid);
+		    bytes_per_frame = kbps * 1024 * frame / rate / 8;
 
-		go_realtime();
-		r = run_tx(snd, channels, frame, encoder, bytes_per_frame,
-			ts_per_frame, session);
+		    ts_per_frame = frame * 8000 / rate;
 
-		if (snd_pcm_close(snd) < 0)
-			abort();
+		    ortp_init();
+		    ortp_scheduler_init();
+		    ortp_set_log_level_mask(ORTP_WARNING|ORTP_ERROR);
+		    session = create_rtp_send(addr, port);
+		    assert(session != NULL);
 
-		rtp_session_destroy(session);
-	    }	    
+		    r = snd_pcm_open(&snd, device, SND_PCM_STREAM_CAPTURE, 0);
+		    if (r < 0) {
+			    aerror("snd_pcm_open", r);
+			    return -1;
+		    }
+		    if (set_alsa_hw(snd, rate, channels, buffer * 1000) == -1)
+			    return -1;
+		    if (set_alsa_sw(snd) == -1)
+			    return -1;
+
+		    if (pid)
+			    go_daemon(pid);
+
+		    go_realtime();
+		    r = run_tx(snd, channels, frame, encoder, bytes_per_frame,
+			    ts_per_frame, session);
+
+		    if (snd_pcm_close(snd) < 0)
+			    abort();
+
+		    rtp_session_destroy(session);
+		    ortp_exit();
+		    ortp_global_stats_display();
+
+		    opus_encoder_destroy(encoder);
+		}	    
+	    }
+
+	    else if(p == 0){ //Serveur plein mais liste d'attente
+		fprintf(stdout, "Les slot du serveur sont pleins.\n");
+		if(!wait) {
+		    fprintf(stdout, "Vous ne souhaitez pas attendre de place.\n");		
+		    end_connection(mainSock);
+		    p = -1;
+		}
+	    }
+	    p = commListenClient(mainSock);
+	}while(p != -1);
+	
+	end_connection(mainSock);
+	if(kill(txpid, SIGTERM) == -1) {
+	    perror("kill()");
+	    exit(errno);
 	}
-	commListenClient(mainSock);
+	fprintf(stdout, "L'instance TX sur le port %d a été cloturée.\n", p );
 	
-	kill(txpid, SIGTERM);
 	
-	ortp_exit();
-	ortp_global_stats_display();
-
-	opus_encoder_destroy(encoder);
 
 	return r;
 }

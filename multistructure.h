@@ -27,6 +27,5 @@ struct Slot {
     SOCKET sock;
 };
 
-
 #endif /* MULTISTRUCTURE_H */
 
