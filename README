@@ -19,3 +19,19 @@ be sent with low-latency and fast recovery from dropouts.
 
 With quality audio hardware and wired ethernet, a total latency of no
 more than a few milliseconds is possible.
+
+28.01.2018 Aurélien Lorence
+
+I've upgrade the original program to create an auto managed aoIP
+Client / Server system.
+You can launch rx with option -i N to open N ortp sessions on N
+consecutives ports. You can define the first port with -p option.
+It creates slots. If an other client wants to connect, it has
+to wait in waiting list (FIFO) until a slot is free.
+
+You can launch tx with option -w. If the option is set and no slots
+are free on the server, the client will wait for a free slot, else
+it will just stop.
+
+Actually, there are few debug messages remaining. I'll clean them
+very soon. 
