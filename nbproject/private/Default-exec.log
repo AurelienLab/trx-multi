@@ -1,5 +1,5 @@
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	-MMD
 	-Wall
@@ -9,7 +9,7 @@ called: cc
 	rx.c
 
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	-MMD
 	-Wall
@@ -19,7 +19,7 @@ called: cc
 	device.c
 
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	-MMD
 	-Wall
@@ -29,7 +29,7 @@ called: cc
 	sched.c
 
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	rx.o
 	device.o
@@ -41,12 +41,12 @@ called: cc
 	rx
 
 called: /usr/bin/ld
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	/usr/bin/ld
 	-plugin
 	/usr/lib/gcc/x86_64-linux-gnu/6/liblto_plugin.so
 	-plugin-opt=/usr/lib/gcc/x86_64-linux-gnu/6/lto-wrapper
-	-plugin-opt=-fresolution=/tmp/ccdq4sc0.res
+	-plugin-opt=-fresolution=/tmp/ccYvetd9.res
 	-plugin-opt=-pass-through=-lgcc
 	-plugin-opt=-pass-through=-lgcc_s
 	-plugin-opt=-pass-through=-lc
@@ -93,7 +93,7 @@ called: /usr/bin/ld
 	/usr/lib/gcc/x86_64-linux-gnu/6/../../../x86_64-linux-gnu/crtn.o
 
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	-MMD
 	-Wall
@@ -103,7 +103,7 @@ called: cc
 	tx.c
 
 called: cc
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	cc
 	tx.o
 	device.o
@@ -115,12 +115,12 @@ called: cc
 	tx
 
 called: /usr/bin/ld
-	/home/verti/trx-0.3
+	/home/verti/trx-multi
 	/usr/bin/ld
 	-plugin
 	/usr/lib/gcc/x86_64-linux-gnu/6/liblto_plugin.so
 	-plugin-opt=/usr/lib/gcc/x86_64-linux-gnu/6/lto-wrapper
-	-plugin-opt=-fresolution=/tmp/ccpvIIEx.res
+	-plugin-opt=-fresolution=/tmp/ccKZJkEh.res
 	-plugin-opt=-pass-through=-lgcc
 	-plugin-opt=-pass-through=-lgcc_s
 	-plugin-opt=-pass-through=-lc

@@ -22,8 +22,6 @@
 #include <alsa/asoundlib.h>
 #include <opus/opus.h>
 #include <ortp/ortp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <stdlib.h>
 #include <signal.h> //Recupération et envoi de signaux entre processus
 
@@ -301,13 +299,14 @@ int main(int argc, char *argv[])
 	    }
 	    
 	}
-	for(;;) {
-	    /* Boucle d'attente */
-	}
+	SOCKET mainSock = commInitServ(instances);
+	commListenServ(mainSock, (int)instances, slots);
+	close_all_sockets(mainSock, slots, (int)instances);
 	
-	for(i=0;i<instances;i++) {
+	for(i=0;i<instances;i++) { //fermeture de toutes les sessions
 	    kill(slots[i].pid, SIGTERM);
 	}
+	
 	ortp_exit();
 	
 	opus_decoder_destroy(decoder);

@@ -22,13 +22,15 @@
 #include <alsa/asoundlib.h>
 #include <opus/opus.h>
 #include <ortp/ortp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
+#include <stdlib.h>
+#include <signal.h> //Recupération et envoi de signaux entre processus
+
 
 #include "defaults.h"
 #include "device.h"
 #include "notice.h"
 #include "sched.h"
+#include "multi.h"
 
 static unsigned int verbose = DEFAULT_VERBOSE;
 
@@ -166,6 +168,7 @@ int main(int argc, char *argv[])
 	snd_pcm_t *snd;
 	OpusEncoder *encoder;
 	RtpSession *session;
+	pid_t txpid;
 
 	/* command-line options */
 	const char *device = DEFAULT_DEVICE,
@@ -176,7 +179,8 @@ int main(int argc, char *argv[])
 		channels = DEFAULT_CHANNELS,
 		frame = DEFAULT_FRAME,
 		kbps = DEFAULT_BITRATE,
-		port = DEFAULT_PORT;
+		port = DEFAULT_PORT,
+		wait = DEFAULT_CLIENT_WAIT;
 
 	fputs(COPYRIGHT "\n", stderr);
 
@@ -235,36 +239,51 @@ int main(int argc, char *argv[])
 	bytes_per_frame = kbps * 1024 * frame / rate / 8;
 
 	/* Follow the RFC, payload 0 has 8kHz reference rate */
+	SOCKET mainSock = commInitClient(addr);
+	int p = ask_slot(mainSock, wait);
+	if(p > 0) {
+	    port = p;
+	    txpid = fork();
+	    fprintf(stdout, "Connecté au serveur %s:%d\n", addr, p);
+	    if(txpid == -1) {
+		/* Erreur */
+	    }
+	    else if(txpid == 0) { //On est dans le processus fils
+		ts_per_frame = frame * 8000 / rate;
 
-	ts_per_frame = frame * 8000 / rate;
+		ortp_init();
+		ortp_scheduler_init();
+		ortp_set_log_level_mask(ORTP_WARNING|ORTP_ERROR);
+		session = create_rtp_send(addr, port);
+		assert(session != NULL);
 
-	ortp_init();
-	ortp_scheduler_init();
-	ortp_set_log_level_mask(ORTP_WARNING|ORTP_ERROR);
-	session = create_rtp_send(addr, port);
-	assert(session != NULL);
+		r = snd_pcm_open(&snd, device, SND_PCM_STREAM_CAPTURE, 0);
+		if (r < 0) {
+			aerror("snd_pcm_open", r);
+			return -1;
+		}
+		if (set_alsa_hw(snd, rate, channels, buffer * 1000) == -1)
+			return -1;
+		if (set_alsa_sw(snd) == -1)
+			return -1;
 
-	r = snd_pcm_open(&snd, device, SND_PCM_STREAM_CAPTURE, 0);
-	if (r < 0) {
-		aerror("snd_pcm_open", r);
-		return -1;
+		if (pid)
+			go_daemon(pid);
+
+		go_realtime();
+		r = run_tx(snd, channels, frame, encoder, bytes_per_frame,
+			ts_per_frame, session);
+
+		if (snd_pcm_close(snd) < 0)
+			abort();
+
+		rtp_session_destroy(session);
+	    }	    
 	}
-	if (set_alsa_hw(snd, rate, channels, buffer * 1000) == -1)
-		return -1;
-	if (set_alsa_sw(snd) == -1)
-		return -1;
-
-	if (pid)
-		go_daemon(pid);
-
-	go_realtime();
-	r = run_tx(snd, channels, frame, encoder, bytes_per_frame,
-		ts_per_frame, session);
-
-	if (snd_pcm_close(snd) < 0)
-		abort();
-
-	rtp_session_destroy(session);
+	commListenClient(mainSock);
+	
+	kill(txpid, SIGTERM);
+	
 	ortp_exit();
 	ortp_global_stats_display();
 

@@ -5,7 +5,9 @@
       <in>defaults.h</in>
       <in>device.c</in>
       <in>device.h</in>
+      <in>multi.c</in>
       <in>multi.h</in>
+      <in>multistructure.h</in>
       <in>notice.h</in>
       <in>rx.c</in>
       <in>sched.c</in>

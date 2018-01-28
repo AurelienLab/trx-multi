@@ -3,7 +3,8 @@
   <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
     <df root="." name="0">
       <in>device.c</in>
-      <in>multi.h</in>
+      <in>multi.c</in>
+      <in>multistructure.h</in>
       <in>rx.c</in>
       <in>sched.c</in>
       <in>tx.c</in>
@@ -44,7 +45,9 @@
       </makefileType>
       <item path="device.c" ex="false" tool="0" flavor2="0">
       </item>
-      <item path="multi.h" ex="false" tool="3" flavor2="0">
+      <item path="multi.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="multistructure.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="rx.c" ex="false" tool="0" flavor2="0">
       </item>
