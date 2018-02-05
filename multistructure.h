@@ -10,6 +10,7 @@
  *
  * Created on 27 janvier 2018, 19:10
  */
+#include <opus/opus.h>
 
 #ifndef MULTISTRUCTURE_H
 #define MULTISTRUCTURE_H
@@ -19,13 +20,35 @@ typedef struct sockaddr_in SOCKADDR_IN;
 typedef struct sockaddr SOCKADDR;
 typedef struct in_addr IN_ADDR;
 
-typedef struct Slot Slot;
-struct Slot {
-    int pid;
-    int portNumber;
-    int isFree;
+
+typedef struct Options Options;
+struct Options {
+    OpusDecoder *decoder;
+    
+    const char *device;
+    const char *addr;
+    const char *pid;
+    
+    unsigned int buffer;
+    unsigned int rate;
+    unsigned int jitter;
+    unsigned int channels;
+    unsigned int port;
+};
+
+
+typedef struct Client Client;
+struct Client {
+    char ip[16];
+    char name[100];
     SOCKET sock;
 };
 
+typedef struct Slot Slot;
+struct Slot {
+    pid_t pid;
+    Client* client;
+    Options param;
+};
 #endif /* MULTISTRUCTURE_H */
 

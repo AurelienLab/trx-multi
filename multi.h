@@ -12,16 +12,23 @@
  */
 #include "multistructure.h"
 
+
 #ifndef MULTI_H
 #define MULTI_H
 
-SOCKET commInitServ(int nbClient);
-void commListenServ(SOCKET sock, int nb_slot, Slot* clients);
-int close_all_sockets(SOCKET sock, Slot* clients, int nbSlots);
+void time_string(char* string);
+void log_add(char* str, FILE* out);
 
-SOCKET commInitClient(const char *ipaddress);
-int ask_slot(SOCKET sock);
-void end_connection(SOCKET sock);
-int commListenClient(SOCKET sock);
+void socket_close(SOCKET sock);
+int socket_close_all(SOCKET sock, Slot* clients, int nbSlots);
+void socket_send(SOCKET sock, const char* data);
+int slot_client_ask(SOCKET sock);
+
+SOCKET client_connection_init(const char *ipaddress);
+int client_listen(SOCKET sock);
+
+SOCKET server_connection_init(int nbClient);
+void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients);
+extern int server_start_rx(Slot* slot);
 #endif /* MULTI_H */
 

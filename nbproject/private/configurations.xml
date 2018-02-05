@@ -2,6 +2,8 @@
 <configurationDescriptor version="100">
   <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
     <df root="." name="0">
+      <df name="logs">
+      </df>
       <in>defaults.h</in>
       <in>device.c</in>
       <in>device.h</in>
@@ -10,10 +12,14 @@
       <in>multistructure.h</in>
       <in>notice.h</in>
       <in>rx.c</in>
+      <in>rx.h</in>
+      <in>rx_start.c</in>
+      <in>rx_start.h</in>
       <in>sched.c</in>
       <in>sched.h</in>
       <in>tx.c</in>
     </df>
+    <itemPath>Back Up Session Launch</itemPath>
   </logicalFolder>
   <projectmakefile>Makefile</projectmakefile>
   <confs>

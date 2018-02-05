@@ -6,6 +6,9 @@
       <in>multi.c</in>
       <in>multistructure.h</in>
       <in>rx.c</in>
+      <in>rx.h</in>
+      <in>rx_start.c</in>
+      <in>rx_start.h</in>
       <in>sched.c</in>
       <in>tx.c</in>
     </df>
@@ -16,6 +19,7 @@
       <itemPath>Makefile</itemPath>
       <itemPath>nbproject/private/launcher.properties</itemPath>
     </logicalFolder>
+    <itemPath>Back Up Session Launch</itemPath>
   </logicalFolder>
   <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
   <sourceRootList>
@@ -43,6 +47,8 @@
           <preBuildCommand></preBuildCommand>
         </preBuild>
       </makefileType>
+      <item path="Back Up Session Launch" ex="false" tool="3" flavor2="0">
+      </item>
       <item path="device.c" ex="false" tool="0" flavor2="0">
       </item>
       <item path="multi.c" ex="false" tool="0" flavor2="0">
@@ -50,6 +56,12 @@
       <item path="multistructure.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="rx.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="rx.h" ex="false" tool="3" flavor2="0">
+      </item>
+      <item path="rx_start.c" ex="false" tool="0" flavor2="0">
+      </item>
+      <item path="rx_start.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="sched.c" ex="false" tool="0" flavor2="0">
       </item>

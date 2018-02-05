@@ -7,7 +7,7 @@ INSTALL ?= install
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 
-CFLAGS += -MMD -Wall
+CFLAGS += -c -MMD -Wall 
 
 LDLIBS_ASOUND ?= -lasound
 LDLIBS_OPUS ?= -lopus
@@ -19,9 +19,9 @@ LDLIBS += $(LDLIBS_ASOUND) $(LDLIBS_OPUS) $(LDLIBS_ORTP)
 
 all:		rx tx
 
-rx:		rx.o device.o sched.o multi.o
+rx:		rx.o rx_start.o device.o sched.o multi.o
 
-tx:		tx.o device.o sched.o multi.o
+tx:		tx.o rx_start.o device.o sched.o multi.o
 
 install:	rx tx
 		$(INSTALL) -d $(DESTDIR)$(BINDIR)

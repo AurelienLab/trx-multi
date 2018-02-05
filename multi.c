@@ -9,21 +9,22 @@
 #include <stdlib.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <sys/select.h>
 #include <sys/types.h>
 #include <alsa/asoundlib.h>
+#include <time.h>
 
 #include "defaults.h"
 #include "multistructure.h"
+#include "rx_start.h"
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 
+unsigned int verbose = DEFAULT_VERBOSE;
+
 /* FONCTIONS GENERIQUES */
-void end_connection(SOCKET sock) {
-    fprintf(stdout, "Socket %d fermé.\n", sock);
-    close(sock);
-}
 
 static char* get_value(char* param, char* string) {
     int paramSize = 0;
@@ -38,14 +39,457 @@ static char* get_value(char* param, char* string) {
     paramPosition += paramSize;
     return paramPosition;
 }
+
+static int get_param(char* param, char* string) {
+    char *paramPosition = NULL;
+    
+    paramPosition = strstr(string, param);
+    
+    if(paramPosition != NULL) {
+	return 1;
+    }
+    return 0;
+}
+
+static int self_name(char *progName) {
+
+    char namebuff[300] = {0};
+    int i = 0, ret = 0;
+
+    /* Recuperation du chemin vers l'executable */
+    ret = readlink("/proc/self/exe", namebuff, sizeof(namebuff)-1);
+    
+    /* Repérage du nom du programme */
+    i = ret;
+    for(;i>=0; i--) {
+	if(namebuff[i] == '/') break;	
+    }
+    
+    /* Si on ne trouve rien */
+    if(i == 0) { progName = "default" ; return 0; }
+
+    /* Sinon on modifie la variable du pointeur progName avec le nom trouvé */
+    i++;
+    strncpy(progName, &namebuff[i], 50);
+    return 1;
+}
+
+void time_string(char* string, int type) {
+    // JJ/MM/AAAA HH:MM:SS : = 23 characters
+    time_t current_time;
+    struct tm *local_time;
+    
+    current_time = time(NULL);
+    local_time = localtime(&current_time);
+    char sday[3],
+	 smonth[3], 
+	 syear[5], 
+	 shour[3],  
+	 sminuts[3], 
+	 sseconds[3];
+    
+    /* format des numero à deux chiffre (ajouter un 0 si le nombre <10 */
+    sprintf(sday, "%02d", local_time->tm_mday) ;
+    sprintf(smonth, "%02d", local_time->tm_mon + 1) ;
+    sprintf(syear, "%02d", local_time->tm_year+1900) ;
+    sprintf(shour, "%02d", local_time->tm_hour) ;
+    sprintf(sminuts, "%02d", local_time->tm_min) ;
+    sprintf(sseconds, "%02d", local_time->tm_sec) ;
+    
+    
+    if(type == 1) {
+    snprintf(string, DEFAULT_TIME_LEN, "%s/%s/%s %s:%s:%s : ",
+	    sday, smonth, syear, shour, sminuts, sseconds);
+    }
+    else if(type == 2) {
+	snprintf(string, DEFAULT_TIME_LEN, "%s%s%s",
+		syear, smonth, sday);
+    }
+}
+
+void log_add(char* str, FILE* out) {
+    char time_str[DEFAULT_TIME_LEN];
+    char filepath[100];
+    char progname[50];
+    self_name(progname);
+    
+    time_string(time_str, 2); //date au format AAAAMMJJ
+    //création du chemin du fichier type "logs/prognameAAAAMMJJ.log"
+    snprintf(filepath, 100, "%s%s%s.log", DEFAULT_LOGPATH, progname, time_str);
+    
+    
+    time_string(time_str, 1); //date au format JJ/MM/AAAA HH:MM:SS
+    
+    FILE* file = fopen(filepath, "a");
+    fprintf(file, time_str); //Ajout de la date
+    fprintf(file, str); // 
+    fprintf(file, "\n");
+    
+    /* si on a indiqué une sortie secondaire (stdout, stderr ou un fichier) */
+    if(out != 0) {
+	fprintf(out, str);
+	fprintf(out, "\n");
+    }
+    fclose(file);
+}
+
+/* FONCTIONS SOCKET */
+
+void socket_send(SOCKET sock, const char* data) {
+    char log_message[200];
+    if(send(sock, data, strlen(data), 0) < 0)
+    {
+	perror("send()");
+	exit(errno);
+    }
+    snprintf(log_message, 200, "message \"%s\" sent on socket %d", data, sock);
+    log_add(log_message, 0);
+}
+
+static int socket_read(SOCKET sock, char *buff) {
+   int n = 0;
+
+   if((n = recv(sock, buff, DEFAULT_COM_BUFFSIZE - 1, 0)) < 0)
+   {
+      perror("recv()");
+      exit(errno);
+   }
+   buff[n] = 0;
+
+   return n;
+}
+
+void socket_close(SOCKET sock) {
+    char log_message[50];
+    snprintf(log_message, 50, "Socket %d closed", sock);
+    log_add(log_message, 0);
+    
+    close(sock);
+}
+
+int socket_close_all(SOCKET sock, Client* clients, int nbSlots) {
+    int i = 0;
+    for(i=0;i<nbSlots + DEFAULT_WAIT_LIST; i++) {
+	socket_close(clients[i].sock);
+    }
+    socket_close(sock);
+    
+    return 1;
+}
+
+/* FONCTIONS CLIENT */
+
+static Client* client_add(Client* clients, SOCKADDR_IN* csin, SOCKET sock, int nbSlots) {
+    int i;
+    Client newClient;
+    
+    newClient.sock = sock;
+    snprintf(newClient.name, 100, "Default");
+    snprintf(newClient.ip, 16, inet_ntoa(csin->sin_addr));
+    
+    for(i=0;i < (nbSlots + DEFAULT_WAIT_LIST); i++) {
+        if(clients[i].sock == 0) {
+            clients[i] = newClient;
+            
+            return &clients[i];
+        }
+    }
+    
+    return 0;
+}
+
+static int client_delete(Client* clientlist, Client* client, int nbSlots) {
+    int i;
+
+    for(i=0; i < (nbSlots + DEFAULT_WAIT_LIST); i++) {
+        if(clientlist[i].sock == client->sock) {
+            snprintf(clientlist[i].ip, 16, " ");
+            snprintf(clientlist[i].name, 100, " ");
+            socket_close(clientlist[i].sock);
+	    clientlist[i].sock = 0;
+            
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+/* FONCTIONS SLOT */
+
+int slot_client_ask(SOCKET sock) {
+    char buff[DEFAULT_COM_BUFFSIZE] = {0};
+    char log_message[200];
+    
+    log_add("Sending slot query to server", stdout);
+    socket_send(sock, "coucou"); //CHANGER POUR TRANSMETTRE IP et autre infos
+    
+    fd_set rdfs;
+    
+    FD_ZERO(&rdfs);
+    FD_SET(sock, &rdfs);
+    
+    log_add("Waiting for server response...", stdout);
+    
+    if(select(sock + 1, &rdfs, NULL, NULL, NULL) == -1)
+    {
+	snprintf(log_message, 200, "select1(): %s", strerror(errno));
+	log_add(log_message, 0);
+	exit(errno);
+    }
+
+    if(FD_ISSET(sock, &rdfs)) {
+	int n = socket_read(sock, buff);
+	if(n == 0 || n == -1) {
+	    log_add("Server stopped", stdout);
+	    return -1;
+	}
+	
+	snprintf(log_message, 200, "Server response: %s", buff);
+	log_add(log_message, 0);
+	
+	if(get_param("port", buff)) {
+	    //lancement d'une instance au port indiqué
+	    snprintf(log_message, 200, "Server info: slot free on port %s.", get_value("port", buff));
+	    log_add(log_message, stdout);
+	    
+	    return(strtol(get_value("port", buff), NULL, 0));
+	}
+	if(get_param("wait", buff)) {
+	    
+	    int waitpos = strtol(get_value("wait", buff), NULL, 0);
+            if(waitpos < 0) {
+		//Le serveur est plein
+		log_add("Server info: all slots are busy and waiting list is full.", stdout);
+		return -1;
+	    }
+	    else if(waitpos >= 0) {
+		//File d'attente en position  waitpos +1
+		snprintf(log_message, 200, "Server info: all slots are busy, %d other clients in waiting list.", waitpos);
+		log_add(log_message, stdout);
+		return 0;
+	    }
+	}
+    }  
+    return -1;
+}
+
+static Slot* slot_check(Slot* slotList, int nbSlot) {
+    int i = 0;
+    
+    for(i=0;i<nbSlot;i++) {
+	if(slotList[i].client == NULL) {
+	    return &slotList[i];
+	}
+    }
+    return NULL;
+}
+
+static int slot_give(Slot* slot, Client* newClient) {
+    char log_message[200];
+    
+    slot->client = newClient;
+    server_start_rx(slot); //le pid est défini dans cette fonction
+	    
+    snprintf(log_message, 200, "Slot with port %d associated with socket %d", slot->param.port, slot->client->sock);
+    log_add(log_message, 0);
+    
+    return 1;
+}
+
+static int slot_setfree(Slot* slot, Client* client, int nbSlots) {
+    int i = 0;
+    char log_message[200];    
+    for(i=0; i < nbSlots; i++) {
+        
+	if(slot[i].client == client) {
+	    slot[i].client = NULL;
+	    
+	    snprintf(log_message, 200, "Slot with port %d is now free", slot[i].param.port);
+	    log_add(log_message, stdout);
+	    
+	    return 1;
+	}
+    }
+    return 0;
+}
+
+/* FONCTIONS LISTE D'ATTENTE */
+
+static int waitlist_addclient(Client* waitlist[], Client* client) {
+    int i = 0;
+    char log_message[200];
+    for(i=0;i<DEFAULT_WAIT_LIST;i++) {
+	if(waitlist[i] == NULL) {
+	    waitlist[i] = client;
+	    snprintf(log_message, 200, "Client with socket %d was put in waiting list", client->sock);
+	    log_add(log_message, stdout);
+	    return i;
+	}
+    }
+    return -1;
+}
+
+static int waiting_count(Client* waitlist[]) {
+    int i = 0;
+    for(i=0;i<DEFAULT_WAIT_LIST;i++) {
+	if(waitlist[i] == 0) return i;
+    }
+    return -1;
+}
+
+static int waiting_refresh(Client* waitlist[]) {
+    int i =0;
+    char message[DEFAULT_COM_BUFFSIZE];
+    
+    
+    for(i=0; i < (DEFAULT_WAIT_LIST - 1); i++) {
+	if(waitlist[i] == NULL) {
+	        
+	    waitlist[i] = waitlist[(i+1)];
+	    waitlist[(i+1)] = NULL;
+	    if(waitlist[i] != NULL) {
+		snprintf(message, DEFAULT_COM_BUFFSIZE, "wait%d", i);
+		socket_send(waitlist[i]->sock, message);
+	    }
+	}
+    }
+    return 1;
+}
+
+static int waiting_to_slot(Client* waitlist[], Slot* slots, int nbSlots) {
+    int i = 0, changes = 0;
+    char message[DEFAULT_COM_BUFFSIZE] = {0};
+    char log_message[200];
+    for(i=0;i<nbSlots;i++) {
+	if(slots[i].client == NULL && waitlist[0] != NULL) {
+	    slots[i].client = waitlist[0];
+	    waitlist[0] = NULL;
+	    snprintf(message, DEFAULT_COM_BUFFSIZE, "port%d", slots[i].param.port);
+	    socket_send(slots[i].client->sock, message);
+	    
+	    snprintf(log_message, 200, "Client on socket %d was transfered from waiting list to slot with port %d", slots[i].client->sock, slots[i].param.port);
+	    log_add(log_message, stdout);
+	    
+	    changes++;
+	    
+	    waiting_refresh(waitlist);
+	    continue;
+	}
+    }
+    return changes;
+}
+
+
+/* FONCTIONS CLIENT */
+
+SOCKET client_connection_init(const char *ipaddress) {
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+    SOCKADDR_IN sin = { 0 };
+    struct hostent *hostinfo;
+    char log_message[200];
+
+    if(sock == INVALID_SOCKET)
+    {
+	snprintf(log_message, 500, "socket() : %s", strerror(errno));
+	log_add(log_message, 0);
+	perror("socket()");
+	exit(errno);
+    }
+    
+    snprintf(log_message, 200, "Connection to %s...", ipaddress);
+    log_add(log_message, stdout);
+    
+    hostinfo = gethostbyname(ipaddress);
+    if (hostinfo == NULL)
+    {
+       snprintf(log_message, 200, "Unknown host %s...", ipaddress);
+       log_add(log_message, stdout);
+       exit(EXIT_FAILURE);
+    }
+    
+    sin.sin_addr = *(IN_ADDR *) hostinfo->h_addr;
+    sin.sin_port = htons(DEFAULT_COM_PORT);
+    sin.sin_family = AF_INET;
+    
+    
+    if(connect(sock,(SOCKADDR *) &sin, sizeof(SOCKADDR)) == SOCKET_ERROR)
+    {
+	snprintf(log_message, 500, "connect() : %s", strerror(errno));
+	log_add(log_message, 0);
+	perror("connect()");
+	exit(errno);
+    }
+
+    snprintf(log_message, 200, "Connection to %s established", ipaddress);
+    log_add(log_message, stdout);
+    return sock;
+}
+
+int client_listen(SOCKET sock) {
+    char buff[DEFAULT_COM_BUFFSIZE];
+    char log_message[200];
+    while(1) {
+	fd_set rdfs;
+	FD_ZERO(&rdfs);
+	FD_SET(sock, &rdfs);
+ 
+	if(select(sock + 1, &rdfs, NULL, NULL, NULL) == -1)
+	{
+	    snprintf(log_message, 200, "select(): %s", strerror(errno));
+	    log_add(log_message, stdout);
+	    exit(errno);
+	}
+	
+	int c = socket_read(sock, buff);
+	
+	if(c == 0 || c == -1) {
+	    //Perte du serveur
+	    log_add("Server lost.", stdout);
+	    return -1;
+	}
+	if(get_param("port", buff)) {
+	    //lancement d'une instance au port indiqué
+	    snprintf(log_message, 200, "Server indicates to stream on port %d", (int)strtol(get_value("port", buff), NULL, 0));
+	    log_add(log_message, stdout);
+	    return(strtol(get_value("port", buff), NULL, 0));
+	}
+	
+	if(get_param("wait", buff)) {	    
+	    int waitpos = strtol(get_value("wait", buff), NULL, 0);
+	    if(waitpos < 0) {
+		//Le serveur est plein
+		log_add("Server: all slots are taken and wait list is full", stdout);
+		return -1;
+	    }
+	    else if(waitpos >= 0) {
+		snprintf(log_message, 200, "You're in wait list on position %d", waitpos +1);
+	        log_add(log_message, stdout);
+		continue;
+	    }
+	}
+	if(get_param("disconnect", buff)) {
+	    log_add("Server shutted down your connection", stdout);
+	    return -1;
+	}
+    }
+    return 0;
+}
+
 /* FONCTIONS SERVEUR */
 
-SOCKET commInitServ(int nbClient) {
+SOCKET server_connection_init(int nbClient) {
+    char log_message[500];
+    
+    log_add("Socket initialisation...", stdout);
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
     SOCKADDR_IN sin = { 0 };
     
     if(sock == INVALID_SOCKET)
     {
+	snprintf(log_message, 500, "socket() : %s", strerror(errno));
+	log_add(log_message, 0);
+	
 	perror("socket()");
 	exit(errno);
 	return -1;
@@ -57,446 +501,210 @@ SOCKET commInitServ(int nbClient) {
     
     if(bind(sock, (SOCKADDR *) &sin, sizeof sin) == SOCKET_ERROR)
     {
+	snprintf(log_message, 500, "bind() : %s", strerror(errno));
+	log_add(log_message, 0);
+	
 	perror("bind()");
 	exit(errno);
 	return -1;
     }
-    fprintf(stdout, "nbClient : %d\n", nbClient);
-    if(listen(sock, nbClient) == SOCKET_ERROR)
-    {
-       perror("listen()");
-       exit(errno);
-       return -1;
-    }
     
+    if(listen(sock, nbClient + DEFAULT_WAIT_LIST) == SOCKET_ERROR)
+    {
+	snprintf(log_message, 500, "listen() : %s", strerror(errno));
+	log_add(log_message, 0);
+	
+	perror("listen()");
+	exit(errno);
+	return -1;
+    }
+    //generation du log
+
+    snprintf(log_message, 500, "Socket %d initialized", sock);
+    log_add(log_message, stdout);
     
     return sock;
 }
-static int read_client(SOCKET sock, char *buff) {
-   int n = 0;
 
-   if((n = recv(sock, buff, DEFAULT_COM_BUFFSIZE - 1, 0)) < 0)
-   {
-      perror("recv()");
-      /* if recv error we disonnect the client */
-      n = 0;
-   }
-
-   //comBuff[n] = 0;
-
-   return n;
-}
-
-static void send_client(SOCKET sock, const char* data) {
-    fprintf(stdout, "APPEL DE SEND_CLIENT() POUR: %s\n", data);
-    if(send(sock, data, strlen(data), 0) < 0)
-    {
-	perror("send()");
-	exit(errno);
-    }
-    fprintf(stdout, "Message: %s envoyé sur le socket %d\n", data, sock);
-}
-
-static int check_slot(Slot* slotList, int nbSlot) {
-    int i = 0;
-    
-    for(i=0;i<nbSlot;i++) {
-	if(slotList[i].isFree){
-	    return slotList[i].portNumber;
-	}
-    }
-    return 0;
-}
-
-static int give_slot(Slot* slots, SOCKET newSock, int freePort, int nbSlot) {
-    fprintf(stdout, "APPEL DE GIVE_SLOT().\n");
-    int i=0;
-    for(i=0 ; i<nbSlot ; i++) {
-	if(slots[i].portNumber == freePort) {
-	    slots[i].isFree = 0 ;
-	    slots[i].sock = newSock;
-	    return 1;
-	}
-    }
-    
-    return 0;
-}
-
-static int back_slot(Slot* slot, SOCKET sock, int nbSlots) {
-    int i = 0;
-    for(i=0; i < nbSlots; i++) {
-	if(slot[i].sock == sock) {
-	    slot[i].sock = 0;
-	    slot[i].isFree = 1;
-	    return 1;
-	}
-    }
-    return 0;
-}
-
-static int put_onwait(SOCKET* waitlist, SOCKET csock) {
-    int i = 0;
-    for(i=0;i<DEFAULT_WAIT_LIST;i++) {
-	if(waitlist[i] == 0) {
-	    waitlist[i] = csock;
-	    return i;
-	}
-    }
-    return -1;
-}
-
-static int count_waiting(SOCKET* waitlist) {
-    int i = 0;
-    for(i=0;i<DEFAULT_WAIT_LIST;i++) {
-	if(waitlist[i] == 0) return i;
-    }
-    return -1;
-}
-
-static int revise_waiting(SOCKET* waitlist) {
-    int i =0;
-    char message[DEFAULT_COM_BUFFSIZE] = {0};
-    
-    for(i=0; i < DEFAULT_WAIT_LIST - 1; i++) {
-	if(waitlist[i] == 0) {
-	    waitlist[i] = waitlist[i+1];
-	    if(waitlist[i] != 0) {
-		snprintf(message, DEFAULT_COM_BUFFSIZE, "wait%d", i);
-		send_client(waitlist[i], message);
-	    }
-	}
-    }
-    return 1;
-}
-
-static int waiting_to_slot(SOCKET* waitlist, Slot* slots, int nbSlots) {
-    int i = 0, changes = 0;
-    char message[DEFAULT_COM_BUFFSIZE] = {0};
-    
-    for(i=0;i<nbSlots;i++) {
-	if(slots[i].isFree && waitlist[0] != 0) {
-	    slots[i].isFree = 0;
-	    slots[i].sock = waitlist[0];
-	    waitlist[0] = 0;
-	    snprintf(message, DEFAULT_COM_BUFFSIZE, "port%d", slots[i].portNumber);
-	    send_client(slots[i].sock, message);
-	    
-	    changes++;
-	    
-	    revise_waiting(waitlist);
-	    continue;
-	}
-    }
-    return changes;
-}
-
-int close_all_sockets(SOCKET sock, Slot* clients, int nbSlots) {
-    int i = 0;
-    fprintf(stdout, "Connexion close\n");
-    for(i=0;i<nbSlots; i++) {
-	close(clients[i].sock);
-    }
-    close(sock);
-    
-    return 1;
-}
-
-
-static int get_param(char* param, char* string) {
-    fprintf(stdout, "APPEL DE GET_PARAM pour %s dans %s\n", param, string);
-    char *paramPosition = NULL;
-    
-    paramPosition = strstr(string, param);
-    
-    if(paramPosition != NULL) {
-	return 1;
-    }
-    return 0;
-}
-
-void commListenServ(SOCKET sock, int nb_slot, Slot* clients) {
+void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
     char comBuff[DEFAULT_COM_BUFFSIZE] = {0}; //Buffer de lecture
     int max = sock;
     char message[DEFAULT_COM_BUFFSIZE] = {0};
-    SOCKET waitlist[DEFAULT_WAIT_LIST] = { 0 };
+    char log_message[500];
+    Client* waitlist[DEFAULT_WAIT_LIST] = { NULL };
+    Client* client;
     int waitAmt = 0;
     int connectedAmt = 0;
     fd_set rdfs;
     
+    snprintf(log_message, 500, "Started listening events on socket %d", sock);
+    log_add(log_message, 0);
+    
     while(1) {
-	int i = 0;
+	int i = 0, c = 0, x = 0;
 	
 	FD_ZERO(&rdfs);//on vide le fd
 	
 	FD_SET(sock, &rdfs); //on écoute le socket principal
 	
 	for(i=0;i<nb_slot;i++) {
-	    if(!clients[i].isFree) { //Si un slot est occupé
-		FD_SET(clients[i].sock, &rdfs); //On ajoute son socket a la lectru d'events
+	    if(slots[i].client != NULL) { //Si un slot est occupé
+		FD_SET(slots[i].client->sock, &rdfs); //On ajoute son socket a la lectru d'events
 	    }
 	}
-	
+
 	for(i=0;i<DEFAULT_WAIT_LIST;i++) {
-	    if(waitlist[i] != 0) { //Si il y a du monde dans la file d'attente
-		FD_SET(waitlist[i], &rdfs); //On ajoute son socket a la lectru d'events
+	    if(waitlist[i] != NULL) { //Si il y a du monde dans la file d'attente
+		FD_SET(waitlist[i]->sock, &rdfs); //On ajoute son socket a la lecture d'events
 	    }
 	}
 	
-	fprintf(stdout, "Attente d'un évènement sur le sockets %d.\n", sock);
 	if(select(max+1, &rdfs, NULL, NULL, NULL) == -1)
 	{
+	   snprintf(log_message, 500, "select() : %s", strerror(errno));
+	   log_add(log_message, 0);
 	   perror("select()"); //Gestion d'erreur
 	   exit(errno);
 	}
 	
 	
+	snprintf(log_message, 500, "Event detected");
+	log_add(log_message, stdout);
+	
 	if(FD_ISSET(sock, &rdfs)) { //Changement sur socket principal
-	    fprintf(stdout, "Un nouveau client tente de se connecter.\n");
+	    
+	    log_add("A client tries to connect", stdout);
+	    
 	    SOCKADDR_IN csin = { 0 };
 	    socklen_t sinsize = sizeof(csin);
+            
+            SOCKET csock = accept(sock, (SOCKADDR *)&csin, &sinsize);
+            
+            if(csock == SOCKET_ERROR) {
+                snprintf(log_message, 500, "accept() : %s", strerror(errno));
+                log_add(log_message, 0);
+                perror("accept()");
+                continue;
+            }
+            
+            if(socket_read(csock, comBuff) == -1) {    
+                //Le client s'est deconnecté
+                log_add("Client disconnected", stdout);
+                continue;
+            }
+            
 	    
-	    int dispo = check_slot(clients, nb_slot);
+	    Slot* freeSlot = slot_check(slots, nb_slot);
 	    
-	    if(dispo > 0) {
-		SOCKET csock = accept(sock, (SOCKADDR *)&csin, &sinsize);
-		if(csock == SOCKET_ERROR)
-		{
-		   perror("accept()");
-		   continue;
-		}
-		
-		if(read_client(csock, comBuff) == -1)
-		{    
-		   //Le client s'est deconnecté
-		   continue;
-		}
-		
-		if(give_slot(clients, csock, dispo, nb_slot)) {
+	    
+           // fprintf(stdout, "port: %d, %d \n", freeSlot->param.port, freeSlot->param.rate);
+	    
+	    if(freeSlot != NULL) { // Si on a de la place
+                client = client_add(clients, &csin, csock, nb_slot);
+                
+		if(slot_give(freeSlot, client)) {
 		    
-		    snprintf(message, DEFAULT_COM_BUFFSIZE, "port%d", dispo);
-		    send_client(csock, message);
-		    fprintf(stdout, "Connexion acceptée sur le socket %d, port %d\n", csock, dispo);
+		    snprintf(message, DEFAULT_COM_BUFFSIZE, "port%d", freeSlot->param.port);
+		    socket_send(client->sock, message);
+		    
+		    snprintf(log_message, 500, "Slot with port %d assigned to new client (socket %d) pid= %d", freeSlot->param.port, csock, freeSlot->pid);
+		    log_add(log_message, stdout);
+		    
 		    connectedAmt++;
 		    max = csock > max ? csock : max;
+		    continue;
 		}
 	    }
-	    else if(dispo == 0) {
-		if(count_waiting(waitlist) < DEFAULT_WAIT_LIST) { //Si place sur la file d'attente
-		    SOCKET csock = accept(sock, (SOCKADDR *)&csin, &sinsize);
-		    if(csock == SOCKET_ERROR)
-		    {
-		       perror("accept()");
-		       continue;
-		    }
-		    int position = put_onwait(waitlist, csock);
+	    else if(freeSlot == NULL) {
+                int nb_waiting = waiting_count(waitlist);
+		if(nb_waiting < DEFAULT_WAIT_LIST && nb_waiting >= 0 ) { //Si place sur la file d'attente
+                    client = client_add(clients, &csin, csock, nb_slot);
+		    int position = waitlist_addclient(waitlist, client);
 		    snprintf(message, DEFAULT_COM_BUFFSIZE, "wait%d", position);
-		    send_client(csock, message);
-		    waitAmt++;
+		    socket_send(client->sock, message);
+		    
+		    
+		    int d = socket_read(client->sock, comBuff);
+		    if( d == -1 || d == 0 ) { //client deconnecté
+			waitlist[position] = NULL;
+			client_delete(clients, client, nb_slot);
+			log_add("Client disconnected and removed from waiting list", stdout);
+			waiting_refresh(waitlist);
+			continue;
+		    }
+		     
 		    max = csock > max ? csock : max;
+		    
+		    continue;
 		}
 		else {
-		    SOCKET tmpsock = accept(sock, (SOCKADDR *)&csin, &sinsize);
-		    if(tmpsock == SOCKET_ERROR)
-		    {
-		       perror("accept()");
-		       continue;
-		    }
-		    send_client(tmpsock, "disconnect");
-		    close(tmpsock);
+		    socket_send(csock, "wait-1");
+		    continue;
 		}
 	    }
 	}
 	else {
+	    
 	    for(i = 0; i < nb_slot; i++ ) {
-		if(FD_ISSET(clients[i].sock, &rdfs)) {
-		    Slot client = clients[i];
-		    int c = read_client(client.sock, comBuff);
-		    if(c == 0 || c == -1) { //Le client s'est deconnecté
-			fprintf(stdout, "Un client s'est deconnecté du socket %d\n", client.sock);
-			fprintf(stdout, "Liberation du port %d.\n", client.portNumber);
-			back_slot(clients, client.sock, nb_slot);
-			revise_waiting(waitlist);
-			waiting_to_slot(waitlist, clients, nb_slot);
-			revise_waiting(waitlist);
+		if(FD_ISSET(slots[i].client->sock, &rdfs)) { //changemement sur un ou plusieurs socket des slots
+		    client = slots[i].client;
+		    c = socket_read(client->sock, comBuff);
+		    if(c == 0 || c == -1 || get_param("disconnect", comBuff)) { //Le client s'est deconnecté
+			
+			snprintf(log_message, 200, "Client disconnected from port %d", slots[i].param.port);
+			log_add(log_message, stdout);
+                        client_delete(clients, client, nb_slot);
+                        
+			if(waiting_count(waitlist) == 0) {
+                            for(i=0;i<nb_slot;i++) {
+                                if(slots[i].client == client) {
+                                    break;
+                                }
+                            }
+			    
+                            server_stop_rx(&slots[i]);
+			    
+                        }
+                        
+                        slot_setfree(slots, client, nb_slot);
+                        
+                        
+			waiting_refresh(waitlist);
+			waiting_to_slot(waitlist, slots, nb_slot);
+			
+			waiting_refresh(waitlist);
+			
+			
 		    }
-		    else {
-			if(get_param("disconnect", comBuff)) {
-			    fprintf(stdout, "Un client s'est deconnecté du socket %d\n", client.sock);
-			}
-		    }
+		    x = 1;
+		    break;
 		}
 	    }
+	    
+	    if(x) { //Si on a eu changement sur un des slots, on redémarre la boucle à 0
+		continue;
+	    }
+	    
 	    for(i = 0; i < DEFAULT_WAIT_LIST; i++ ) {
-		if(FD_ISSET(waitlist[i], &rdfs)) {
-		    int c = read_client(waitlist[i], comBuff);
-		    
-		    if(c == 0 || c == -1) { //Le client s'est deconnecté
-			SOCKET oldSock = waitlist[i];
-			end_connection(waitlist[i]);
-			waitlist[i] = 0;
-			revise_waiting(waitlist);
-			fprintf(stdout, "Un client s'est deconnecté de la liste d'attente (socket %d).\n", oldSock);
-			fprintf(stdout, "Encore %d client(s) en file d'attente.\n", count_waiting(waitlist));
+		if(FD_ISSET(waitlist[i]->sock, &rdfs)) {
+		    client = waitlist[i];
+		    c = socket_read(client->sock, comBuff);
+
+		    if(c == 0 || c == -1 || get_param("disconnect", comBuff)) { //Le client s'est deconnecté
+			waitlist[i] = NULL;
+			client_delete(clients, client, nb_slot);
+			waiting_refresh(waitlist);
+
+			snprintf(log_message, 200, "Client of waiting list disconnected\nStill %d client(s) in wait list", waiting_count(waitlist));
+			log_add(log_message, stdout);
+
+			break;
 		    }
 		    else {
 			/* Gestion des messages client */
 		    }
 		}
 	    }
-	} 	 
-    }
+	}
+    } 	 
 }
-
-/* FONCTIONS CLIENT */
-
-SOCKET commInitClient(const char *ipaddress) {
-    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
-    SOCKADDR_IN sin = { 0 };
-    struct hostent *hostinfo;
-
-    if(sock == INVALID_SOCKET)
-    {
-       perror("socket()");
-       exit(errno);
-    }
-    
-    fprintf(stdout, "Connexion à %s ... \n", ipaddress);
-    
-    hostinfo = gethostbyname(ipaddress);
-    if (hostinfo == NULL)
-    {
-       fprintf (stderr, "Serveur inconnu %s.\n", ipaddress);
-       exit(EXIT_FAILURE);
-    }
-    
-    sin.sin_addr = *(IN_ADDR *) hostinfo->h_addr;
-    sin.sin_port = htons(DEFAULT_COM_PORT);
-    sin.sin_family = AF_INET;
-    
-    
-    if(connect(sock,(SOCKADDR *) &sin, sizeof(SOCKADDR)) == SOCKET_ERROR)
-    {
-       perror("connect()");
-       exit(errno);
-    }
-
-    fprintf(stdout, "Connexion initialisée.\n");
-    return sock;
-}
-
-static void send_server(SOCKET sock, const char *buff) {
-    if(send(sock, buff, strlen(buff), 0) < 0)
-    {
-       perror("send()");
-       exit(errno);
-    }
-    fprintf(stdout, "Demande %s envoyée au serveur. \n", buff);
-}
-
-static int read_server(SOCKET sock, char *buff) {
-   int n = 0;
-
-   if((n = recv(sock, buff, DEFAULT_COM_BUFFSIZE - 1, 0)) < 0)
-   {
-      perror("recv()");
-      exit(errno);
-   }
-
-   buff[n] = 0;
-
-   return n;
-}
-
-int ask_slot(SOCKET sock) {
-    fprintf(stdout, "socket: %d\n", sock);
-    char buff[DEFAULT_COM_BUFFSIZE] = {0};
-    
-    fprintf(stdout, "Envoi de la demande de slot au serveur.\n");
-    send_server(sock, "coucou"); //CHANGER POUR TRANSMETTRE IP et autre infos
-    
-    fd_set rdfs;
-    
-    FD_ZERO(&rdfs);
-    FD_SET(sock, &rdfs);
-    fprintf(stdout, "Attente de la réponse du serveur.\n");
-    if(select(sock + 1, &rdfs, NULL, NULL, NULL) == -1)
-    {
-
-	perror("select()");
-	exit(errno);
-    }
-
-    if(FD_ISSET(sock, &rdfs)) {
-	int n = read_server(sock, buff);
-	if(n == 0 || n == -1) {
-	    fprintf(stdout, "Le serveur s'est arrêté\n");
-	    return -1;
-	}
-	fprintf(stdout, "Retour du serveur: %s\n", buff);
-	
-	if(get_param("port", buff)) {
-	    //lancement d'une instance au port indiqué
-	    return(strtol(get_value("port", buff), NULL, 0));
-	}
-	if(get_param("wait", buff)) {
-	    
-	    int waitpos = strtol(get_value("wait", buff), NULL, 0);
-	    if(waitpos < 0) {
-		//Le serveur est plein
-		fprintf(stdout, "Le serveur indique que tous les slots sont occupés et la file d'attente pleine.\n");
-		return -1;
-	    }
-	    else if(waitpos >= 0) {
-		//File d'attente en position  waitpos +1
-		fprintf(stdout, "Les slots sont occupé, %d autre(s) personne(s) en file d'attente.\n", waitpos);
-		return 0;
-	    }
-	}
-    }  
-    return -1;
-}
-
-int commListenClient(SOCKET sock) {
-    char buff[DEFAULT_COM_BUFFSIZE];
-    while(1) {
-	fd_set rdfs;
-	FD_ZERO(&rdfs);
-	FD_SET(sock, &rdfs);
-
-	if(select(sock + 1, &rdfs, NULL, NULL, NULL) == -1)
-	{
-	   perror("select()");
-	   exit(errno);
-	}
-	int c = read_server(sock, buff);
-	
-	if(c == 0 || c == -1) {
-	    //Perte du serveur
-	    return -1;
-	}
-	if(get_param("port", buff)) {
-	    //lancement d'une instance au port indiqué
-	    return(strtol(get_value("port", buff), NULL, 0));
-	}
-	
-	if(get_param("wait", buff)) {
-	    
-	    int waitpos = strtol(get_value("wait", buff), NULL, 0);
-	    if(waitpos < 0) {
-		//Le serveur est plein
-		fprintf(stdout, "Le serveur indique que tous les slots sont occupés et la file d'attente pleine.\n");
-		return -1;
-	    }
-	    else if(waitpos >= 0) {
-		fprintf(stdout, "Vous êtes en file d'attente en position n°%d", waitpos + 1);
-		return 0;
-	    }
-	}
-	if(get_param("disconnect", buff)) {
-	    fprintf(stdout, "Le serveur a coupé la connexion.");
-	    return -1;
-	}
-    }
-    return 0;
-}
-

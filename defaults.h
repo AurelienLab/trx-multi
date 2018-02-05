@@ -21,4 +21,7 @@
 #define DEFAULT_COM_BUFFSIZE 1024
 #define DEFAULT_CLIENT_WAIT 0
 #define DEFAULT_WAIT_LIST 5
+
+#define DEFAULT_TIME_LEN 24
+#define DEFAULT_LOGPATH "logs/"
 #endif

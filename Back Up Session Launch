@@ -1,0 +1,40 @@
+for(i=0;i<instances;i++) {
+	    /* Lancement d'un certain nombre de sessions à différents ports */
+	    rxpid = fork(); //nouveau processus
+	    
+	    if(rxpid == -1) {
+		/* Erreur */
+	    }
+	    else if(rxpid == 0) { //On est dans le processus fils
+		    //Creation d'une session de lecture
+		slots[i].pid = rxpid;
+		session = create_rtp_recv(addr, slots[i].portNumber, jitter); //1 Session oRTP créée
+		assert(session != NULL);
+
+		r = snd_pcm_open(&snd, device, SND_PCM_STREAM_PLAYBACK, 0); //Ouverture d'une liaison carte son
+		if (r < 0) {
+			aerror("snd_pcm_open", r);
+			return -1;
+		}
+		if (set_alsa_hw(snd, rate, channels, buffer * 1000) == -1)
+			return -1;
+		if (set_alsa_sw(snd) == -1)
+			return -1;
+
+		if (pid)
+			go_daemon(pid); //Mise du recepteur en daemon si presence pid (Pere / fils ?)
+
+		go_realtime();
+		r = run_rx(session, decoder, snd, channels, rate); // boucle infinie de lecture
+
+
+
+		if (snd_pcm_close(snd) < 0)
+			abort(); //Si erreur de liaison carte son, fin de la boucle
+
+		rtp_session_destroy(session); //Fin de la session oRTP
+
+	    //Fin de la session oRTP
+	    }
+	    
+	}

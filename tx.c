@@ -32,7 +32,7 @@
 #include "sched.h"
 #include "multi.h"
 
-static unsigned int verbose = DEFAULT_VERBOSE;
+extern unsigned int verbose;
 
 static RtpSession* create_rtp_send(const char *addr_desc, const int port)
 {
@@ -171,6 +171,7 @@ int main(int argc, char *argv[])
 	OpusEncoder *encoder;
 	RtpSession *session;
 	pid_t txpid;
+	char log_message[200];
 
 	/* command-line options */
 	const char *device = DEFAULT_DEVICE,
@@ -234,13 +235,14 @@ int main(int argc, char *argv[])
 	}
 	
 	/* Follow the RFC, payload 0 has 8kHz reference rate */
-	SOCKET mainSock = commInitClient(addr);
-	int p = ask_slot(mainSock);
-	do {
+	SOCKET mainSock = client_connection_init(addr);
+	int p = slot_client_ask(mainSock);
+	while(p >= 0) {
 	    if(p > 0) { //La connexion retourne un port
 		port = p;
+		snprintf(log_message, 200, "Launching tx session on %s:%d", addr, p);
+		log_add(log_message, stdout);
 		txpid = fork();
-		fprintf(stdout, "Connecté au serveur %s:%d\n", addr, p);
 		if(txpid == -1) {
 		    /* Erreur */
 		}
@@ -275,7 +277,8 @@ int main(int argc, char *argv[])
 
 		    if (pid)
 			    go_daemon(pid);
-
+		    
+		    log_add("Started audio transmission", stdout);
 		    go_realtime();
 		    r = run_tx(snd, channels, frame, encoder, bytes_per_frame,
 			    ts_per_frame, session);
@@ -292,22 +295,24 @@ int main(int argc, char *argv[])
 	    }
 
 	    else if(p == 0){ //Serveur plein mais liste d'attente
-		fprintf(stdout, "Les slot du serveur sont pleins.\n");
 		if(!wait) {
-		    fprintf(stdout, "Vous ne souhaitez pas attendre de place.\n");		
-		    end_connection(mainSock);
+		    log_add("Waiting mode disabled. Start tx with -w option to wait", stdout);		
+		    socket_close(mainSock);
 		    p = -1;
+		    return 0;
 		}
+		sleep(1);
+		socket_send(mainSock, "wait\0");
 	    }
-	    p = commListenClient(mainSock);
-	}while(p != -1);
+	    p = client_listen(mainSock);
+	}
 	
-	end_connection(mainSock);
+	socket_close(mainSock);
 	if(kill(txpid, SIGTERM) == -1) {
 	    perror("kill()");
 	    exit(errno);
 	}
-	fprintf(stdout, "L'instance TX sur le port %d a été cloturée.\n", p );
+	log_add("Audio transmission finished", stdout);
 	
 	
 
