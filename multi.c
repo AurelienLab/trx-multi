@@ -12,35 +12,56 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <alsa/asoundlib.h>
 #include <time.h>
 
 #include "defaults.h"
 #include "multistructure.h"
 #include "rx_start.h"
+#include "admin.h"
+#include "multi.h"
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 
 unsigned int verbose = DEFAULT_VERBOSE;
-
+Client tx_client;
+Server server;
 /* FONCTIONS GENERIQUES */
 
-static char* get_value(char* param, char* string) {
-    int paramSize = 0;
+char* get_value(char* param, char* string) {
+    int paramSize = 0, i = 0;
     char *paramPosition = NULL;
+    char *paramValue = NULL;
     
-    paramPosition = strstr(string, param);
+    char stringCpy[50];
+    strcpy(stringCpy, string);
+
+    paramPosition = strstr(stringCpy, param);
+    
     if(paramPosition == NULL) {
 	return NULL;
     }
     
     paramSize = strlen(param);
     paramPosition += paramSize;
-    return paramPosition;
+    while(paramPosition[0] == ' ') {
+	paramPosition++;
+    }
+    paramValue = paramPosition;
+    
+    int n = strlen(paramValue);
+    for(i=0; i < n; i++) {
+	if(paramValue[i] == 32) {
+	    break;
+	}
+    }
+    paramValue[(i+1)] = '\0';
+    return paramValue;
 }
 
-static int get_param(char* param, char* string) {
+int get_param(char* param, char* string) {
     char *paramPosition = NULL;
     
     paramPosition = strstr(string, param);
@@ -52,13 +73,12 @@ static int get_param(char* param, char* string) {
 }
 
 static int self_name(char *progName) {
-
-    char namebuff[300] = {0};
+    
+    char namebuff[1024] = {0};
     int i = 0, ret = 0;
 
     /* Recuperation du chemin vers l'executable */
     ret = readlink("/proc/self/exe", namebuff, sizeof(namebuff)-1);
-    
     /* Repérage du nom du programme */
     i = ret;
     for(;i>=0; i--) {
@@ -71,6 +91,26 @@ static int self_name(char *progName) {
     /* Sinon on modifie la variable du pointeur progName avec le nom trouvé */
     i++;
     strncpy(progName, &namebuff[i], 50);
+    
+    return 1;
+}
+static int self_path(char *progPath) {
+    
+    char namebuff[1024] = {0};
+    int i = 0, ret = 0;
+
+    /* Recuperation du chemin vers l'executable */
+    ret = readlink("/proc/self/exe", namebuff, sizeof(namebuff)-1);
+
+    /* Repérage du nom du programme */
+    i = ret;
+    for(;i>=0; i--) {
+	if(namebuff[i] == '/') {
+	    namebuff[(i+1)] = '\0';
+	    break;	
+	}
+    }
+    snprintf(progPath, 50, "%s%s", &namebuff, DEFAULT_LOGPATH);
     return 1;
 }
 
@@ -109,19 +149,24 @@ void time_string(char* string, int type) {
 
 void log_add(char* str, FILE* out) {
     char time_str[DEFAULT_TIME_LEN];
-    char filepath[100];
+    char filepath[100] = {0};
     char progname[50];
-    self_name(progname);
     
+    self_name(progname);
     time_string(time_str, 2); //date au format AAAAMMJJ
     //création du chemin du fichier type "logs/prognameAAAAMMJJ.log"
-    snprintf(filepath, 100, "%s%s%s.log", DEFAULT_LOGPATH, progname, time_str);
-    
-    
+    //snprintf(filepath, 100, "%s%s%s.log", DEFAULT_LOGPATH, progname, time_str);
+    strcat(progname, time_str);
+    strcat(progname, ".log");
+    self_path(filepath);
+    strcat(filepath, progname);
+
     time_string(time_str, 1); //date au format JJ/MM/AAAA HH:MM:SS
-    
+
     FILE* file = fopen(filepath, "a");
+    chmod(filepath,0777);
     fprintf(file, time_str); //Ajout de la date
+    
     fprintf(file, str); // 
     fprintf(file, "\n");
     
@@ -136,17 +181,17 @@ void log_add(char* str, FILE* out) {
 /* FONCTIONS SOCKET */
 
 void socket_send(SOCKET sock, const char* data) {
-    char log_message[200];
+    //char log_message[800];
     if(send(sock, data, strlen(data), 0) < 0)
     {
 	perror("send()");
 	exit(errno);
     }
-    snprintf(log_message, 200, "message \"%s\" sent on socket %d", data, sock);
-    log_add(log_message, 0);
+    //snprintf(log_message, 800, "message \"%s\" sent on socket %d", data, sock);
+    //log_add(log_message, 0);
 }
 
-static int socket_read(SOCKET sock, char *buff) {
+int socket_read(SOCKET sock, char *buff) {
    int n = 0;
 
    if((n = recv(sock, buff, DEFAULT_COM_BUFFSIZE - 1, 0)) < 0)
@@ -160,9 +205,9 @@ static int socket_read(SOCKET sock, char *buff) {
 }
 
 void socket_close(SOCKET sock) {
-    char log_message[50];
-    snprintf(log_message, 50, "Socket %d closed", sock);
-    log_add(log_message, 0);
+    //char log_message[50];
+    //snprintf(log_message, 50, "Socket %d closed", sock);
+    //log_add(log_message, 0);
     
     close(sock);
 }
@@ -179,14 +224,29 @@ int socket_close_all(SOCKET sock, Client* clients, int nbSlots) {
 
 /* FONCTIONS CLIENT */
 
-static Client* client_add(Client* clients, SOCKADDR_IN* csin, SOCKET sock, int nbSlots) {
+static Client* client_add(Client* clients, SOCKADDR_IN* csin, SOCKET sock, int nbSlots, char* buffer) {
     int i;
     Client newClient;
-    
+    if(get_param("name", buffer)) {
+	snprintf(newClient.name, 100, get_value("name", buffer));
+    }
+    else {
+	snprintf(newClient.name, 100, "Default");
+    }
+    if(get_param("rate", buffer)) {
+	char value[10];
+	snprintf(value, 50, get_value("rate", buffer));
+	int rate = (int)strtol(value, NULL, 0);
+	newClient.rate = rate;
+    }
+    else {
+	newClient.rate = 0;
+    }
     newClient.sock = sock;
-    snprintf(newClient.name, 100, "Default");
     snprintf(newClient.ip, 16, inet_ntoa(csin->sin_addr));
+    newClient.connex_time = time(NULL);
     
+   
     for(i=0;i < (nbSlots + DEFAULT_WAIT_LIST); i++) {
         if(clients[i].sock == 0) {
             clients[i] = newClient;
@@ -219,10 +279,12 @@ static int client_delete(Client* clientlist, Client* client, int nbSlots) {
 
 int slot_client_ask(SOCKET sock) {
     char buff[DEFAULT_COM_BUFFSIZE] = {0};
+    char infos[DEFAULT_COM_BUFFSIZE] = {0};
     char log_message[200];
     
+    snprintf(infos, DEFAULT_COM_BUFFSIZE, "name %s rate %d", tx_client.name, tx_client.rate);
     log_add("Sending slot query to server", stdout);
-    socket_send(sock, "coucou"); //CHANGER POUR TRANSMETTRE IP et autre infos
+    socket_send(sock, infos); //CHANGER POUR TRANSMETTRE IP et autre infos
     
     fd_set rdfs;
     
@@ -237,7 +299,7 @@ int slot_client_ask(SOCKET sock) {
 	log_add(log_message, 0);
 	exit(errno);
     }
-
+    //socket_send(sock, infos);
     if(FD_ISSET(sock, &rdfs)) {
 	int n = socket_read(sock, buff);
 	if(n == 0 || n == -1) {
@@ -526,14 +588,14 @@ SOCKET server_connection_init(int nbClient) {
     return sock;
 }
 
-void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
+void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients, SOCKET adminSock) {
     char comBuff[DEFAULT_COM_BUFFSIZE] = {0}; //Buffer de lecture
-    int max = sock;
+    int max = sock > adminSock ? sock : adminSock;
+    
     char message[DEFAULT_COM_BUFFSIZE] = {0};
     char log_message[500];
     Client* waitlist[DEFAULT_WAIT_LIST] = { NULL };
     Client* client;
-    int waitAmt = 0;
     int connectedAmt = 0;
     fd_set rdfs;
     
@@ -542,9 +604,8 @@ void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
     
     while(1) {
 	int i = 0, c = 0, x = 0;
-	
 	FD_ZERO(&rdfs);//on vide le fd
-	
+	FD_SET(adminSock, &rdfs); //on écoute le socket admin
 	FD_SET(sock, &rdfs); //on écoute le socket principal
 	
 	for(i=0;i<nb_slot;i++) {
@@ -568,8 +629,8 @@ void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
 	}
 	
 	
-	snprintf(log_message, 500, "Event detected");
-	log_add(log_message, stdout);
+	//snprintf(log_message, 500, "Event detected");
+	//log_add(log_message, stdout);
 	
 	if(FD_ISSET(sock, &rdfs)) { //Changement sur socket principal
 	    
@@ -593,18 +654,16 @@ void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
                 continue;
             }
             
-	    
 	    Slot* freeSlot = slot_check(slots, nb_slot);
 	    
 	    
            // fprintf(stdout, "port: %d, %d \n", freeSlot->param.port, freeSlot->param.rate);
 	    
 	    if(freeSlot != NULL) { // Si on a de la place
-                client = client_add(clients, &csin, csock, nb_slot);
-                
+                client = client_add(clients, &csin, csock, nb_slot, comBuff);
 		if(slot_give(freeSlot, client)) {
 		    
-		    snprintf(message, DEFAULT_COM_BUFFSIZE, "port%d", freeSlot->param.port);
+		    snprintf(message, DEFAULT_COM_BUFFSIZE, "port %d", freeSlot->param.port);
 		    socket_send(client->sock, message);
 		    
 		    snprintf(log_message, 500, "Slot with port %d assigned to new client (socket %d) pid= %d", freeSlot->param.port, csock, freeSlot->pid);
@@ -618,9 +677,9 @@ void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
 	    else if(freeSlot == NULL) {
                 int nb_waiting = waiting_count(waitlist);
 		if(nb_waiting < DEFAULT_WAIT_LIST && nb_waiting >= 0 ) { //Si place sur la file d'attente
-                    client = client_add(clients, &csin, csock, nb_slot);
+                    client = client_add(clients, &csin, csock, nb_slot, comBuff);
 		    int position = waitlist_addclient(waitlist, client);
-		    snprintf(message, DEFAULT_COM_BUFFSIZE, "wait%d", position);
+		    snprintf(message, DEFAULT_COM_BUFFSIZE, "wait %d", position);
 		    socket_send(client->sock, message);
 		    
 		    
@@ -638,15 +697,26 @@ void server_listen(SOCKET sock, int nb_slot, Slot* slots, Client* clients) {
 		    continue;
 		}
 		else {
-		    socket_send(csock, "wait-1");
+		    socket_send(csock, "wait -1");
 		    continue;
 		}
 	    }
 	}
-	else {
+	if(FD_ISSET(adminSock, &rdfs)) {
+	    int adm_rtn = admin_manage(adminSock, clients, waitlist, slots, nb_slot); 
 	    
+	    if(adm_rtn == 1) {
+		continue;
+	    }
+	    if(adm_rtn == 2) {
+		log_add("Server shutdown by admin interface", stdout);
+		break;
+	    }
+	    
+	}
+	else {
 	    for(i = 0; i < nb_slot; i++ ) {
-		if(FD_ISSET(slots[i].client->sock, &rdfs)) { //changemement sur un ou plusieurs socket des slots
+		if(slots[i].client != NULL && FD_ISSET(slots[i].client->sock, &rdfs)) { //changemement sur un ou plusieurs socket des slots
 		    client = slots[i].client;
 		    c = socket_read(client->sock, comBuff);
 		    if(c == 0 || c == -1 || get_param("disconnect", comBuff)) { //Le client s'est deconnecté

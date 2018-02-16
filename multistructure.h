@@ -36,11 +36,17 @@ struct Options {
     unsigned int port;
 };
 
-
+typedef struct Server Server;
+struct Server {
+    pid_t pid;
+    time_t start_time;
+};
 typedef struct Client Client;
 struct Client {
     char ip[16];
     char name[100];
+    time_t connex_time;
+    int rate;
     SOCKET sock;
 };
 
@@ -49,6 +55,7 @@ struct Slot {
     pid_t pid;
     Client* client;
     Options param;
+    time_t start_time;
 };
 #endif /* MULTISTRUCTURE_H */
 

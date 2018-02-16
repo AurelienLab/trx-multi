@@ -1,0 +1,323 @@
+/*
+To change this license header, choose License Headers in Project Properties.
+To change this template file, choose Tools | Templates
+and open the template in the editor.
+*/
+/* 
+    Created on : 8 févr. 2018, 21:22:55
+    Author     : VertiDesk
+*/
+body {
+    width: 80%;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: #b3b3b3;
+}
+body > div {
+    width: 100%;
+}
+div {
+    margin: 0px;
+    padding: 5px;
+}
+
+div#content > div, div#header, div#menu, div#bottom {
+    background-color: #595959;
+    border: none;
+    border-radius: 5px;
+}
+
+div#header, div#menu, div#bottom {
+    margin: 5px;
+}
+
+/* STYLE HEADER */
+
+div#header {
+    font-family: "Arial Black", Gadget, sans-serif;
+    color: #fff6e3;
+}
+
+div#header h1 {
+    margin-left: 5%;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+div#header p {
+    margin: 0;
+    margin-left: 10%;
+}
+
+/* STYLE CONTENT */
+
+div#content {
+    padding-top: 20px;
+}
+
+div#content > div > h1 {
+    margin-left: 5%;
+    margin-top: -50px;
+    margin-bottom: 5px;
+    padding: 10px;
+    padding-top: 2px;
+    padding-bottom: 0;
+    font-size: 30px;
+    font-variant: small-caps;
+    font-family: "Lucida Console", Monaco, monospace;
+    color: #fff6e3;
+    background-color: #595959;
+    display: inline-flex;
+    border: 2px #fff6e3 solid;
+    border-radius: 2px;
+    box-shadow: 2px 2px 2px #222222;
+}
+
+div#slots {
+    display: inline-block;
+    width: 65%;
+    margin: 0;
+    min-height: 200px;
+}
+
+#slots img, #server img {
+    display: block;
+    vertical-align: middle;
+    margin: auto;;
+    width: 50px;
+    height: auto;
+}
+
+div.slot, div.waitline, div.serverarea {
+    margin: 2px;
+    margin-bottom: 5px;
+    margin-top: 5px;
+    padding: auto;
+    padding-right: 6px;
+    white-space: nowrap;
+    background-color: #3c3c3c;
+    border: none;
+    border-radius: 5px;
+}
+
+div.slot:hover, div.waitline:hover {
+    background-color: #434343;
+}
+div.slot div.slotclient {
+    margin: 0;
+    padding: 0;
+    display: inline-block;
+    vertical-align: middle;
+    border: none;
+    width: 40%;
+    z-index: 10;
+}
+
+div.slot ul.clientinfos {
+    display: inline-block;
+    color: #b3b3b3;
+    font-size: 12px;
+    width: 10%;
+    vertical-align: middle;
+    font-family: "Lucida Console", Monaco, monospace;
+}
+
+div.slot ul.clientinfos li {
+    list-style-type: none;
+    padding: 3px;
+}
+
+div#slots > p, div#slots div.slotclient p, form#serv_start p {
+    margin: 0px;
+    color: #cbcbcb;
+    font-family: "Lucida Sans Unicode", "Lucida Grande", sans-serif;
+    margin-left: 5%;
+}
+
+div#server p#command {
+    background-color: black;
+    max-width: 80%;
+    margin-left: auto;
+    margin-right: auto;
+    color: white;
+    border: 2px solid white;
+    text-align: center;
+}
+
+div#slots p.empty {
+    margin: 0px;
+    color: #cbcbcb;
+    text-align: center;
+    font-style: italic;
+    font-family: "Lucida Sans Unicode", "Lucida Grande", sans-serif;
+}
+
+div.slot p.slotid {
+    display: inline-block;
+    color: #595959;
+    font-size: 40px;
+    font-family: "Arial Black", Gadget, sans-serif;
+    margin: 0;
+    width: 40%;
+    text-align: right;
+    vertical-align: middle;
+}
+
+div#slots p.streamtime {
+    width: 89%;
+    font-family: "Lucida Console", Monaco, monospace;
+    font-size: 13px; 
+    margin-left: 10px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    text-align: center;
+    white-space: normal;
+}
+
+div#slots p.slotlinks {
+    font-size: 13px;
+    margin-left: 10%;
+    font-family: "Lucida Sans Unicode", "Lucida Grande", sans-serif;
+}
+
+div#slots p.slotlinks a {
+    color: #fff1a7;
+    text-decoration: none;
+}
+
+div#slots p.slotlinks a:hover {
+    color: #dddddd;
+    text-decoration: none;
+}
+
+div#slots form#serv_start {
+    
+}
+
+div#server form#serv_start p {
+    width: 60%;
+    font-size: 13px;
+    margin-top: 6px;
+}
+div#server form#serv_start p label {
+    display: inline-block;
+    text-align: right;
+    width: 60%;
+    
+}
+div#server form#serv_start p input {
+    display: inline-block;
+    margin-left: 10px;
+    width: 30%;
+    max-width: 80px;
+    border: 2px solid #595959;
+}
+
+div #waitlist {
+   display: inline-block;
+   vertical-align: top;
+   width: 30%;
+   margin-left: 0.5%;
+   position: relative;
+   top: 0;
+   right: 0;
+}
+
+div#waitlist {
+    color: #b3b3b3;
+    font-family: "Lucida Sans Unicode", "Lucida Grande", sans-serif;
+}
+
+div#waitlist div.waitline p.name {
+    display: inline-block;
+    width: 87%;
+    padding-top: 0px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+    font-size: 12px;
+}
+
+div#waitlist div.waitline p.waitlinks {
+    display: inline-block;
+    text-align: right;
+    width: 10%;
+    font-size: 13px;
+    margin: 0px;
+}
+
+div#waitlist div.waitline p.waitlinks a {
+    color: #fff1a7;
+    text-decoration: none;
+}
+
+div#waitlist div.waitline p.waitlinks a:hover {
+    color: #dddddd;
+}
+
+div#waitlist div.waitline p.waittime {
+    margin: 0px;
+    font-family: "Lucida Console", Monaco, monospace;
+    font-size: 12px;
+    text-align: center;
+}
+div#server {
+    margin-top: 30px;
+    padding-bottom: 25px;
+    font-family: "Lucida Sans Unicode", "Lucida Grande", sans-serif;
+}
+div#server > div {
+    display: block;
+}
+
+div#server div.serverarea {
+    display: inline-block;
+    padding-left: 15px;
+    padding-right: 15px;
+    vertical-align: top;
+    width: 46%;
+}
+
+div#server div.serverarea h2 {
+    color: #dddddd;
+    margin-top: 5px;
+    font-size: 17px;
+}
+
+div#server div.serverarea ul {
+    padding-left: 0px;
+    margin-left: 20px;
+}
+
+div#server div.serverarea li {
+    list-style-type: none;
+    color: #b3b3b3;
+    text-align: left;
+}
+div#server a {
+    color: #fff1a7;
+    text-decoration: none;
+}
+
+div#server div#console {
+    width: 80%;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+div#server div#console > pre {
+    background-color: black;
+    color: green;
+    padding: 8px;
+}
+ 
+div#server a:hover {
+    color: #dddddd;
+}
+/* STYLE BOTTOM PAGE */
+
+div#bottom p {
+    margin: 5px; 
+    color: #fff6e3;
+    font-family: Arial, Helvetica, sans-serif;
+}

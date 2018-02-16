@@ -31,8 +31,10 @@
 #include "notice.h"
 #include "sched.h"
 #include "multi.h"
+#include "multistructure.h"
 
 extern unsigned int verbose;
+extern Client tx_client;
 
 static RtpSession* create_rtp_send(const char *addr_desc, const int port)
 {
@@ -234,6 +236,8 @@ int main(int argc, char *argv[])
 		}
 	}
 	
+	snprintf(tx_client.name, 100, "Copain");
+	tx_client.rate = kbps;//En attendant le fichier de config
 	/* Follow the RFC, payload 0 has 8kHz reference rate */
 	SOCKET mainSock = client_connection_init(addr);
 	int p = slot_client_ask(mainSock);

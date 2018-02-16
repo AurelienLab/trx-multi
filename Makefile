@@ -19,9 +19,9 @@ LDLIBS += $(LDLIBS_ASOUND) $(LDLIBS_OPUS) $(LDLIBS_ORTP)
 
 all:		rx tx
 
-rx:		rx.o rx_start.o device.o sched.o multi.o
+rx:		rx.o rx_start.o device.o sched.o multi.o admin.o
 
-tx:		tx.o rx_start.o device.o sched.o multi.o
+tx:		tx.o rx_start.o device.o sched.o multi.o admin.o
 
 install:	rx tx
 		$(INSTALL) -d $(DESTDIR)$(BINDIR)

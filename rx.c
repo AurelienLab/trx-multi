@@ -31,8 +31,9 @@
 #include "sched.h"
 #include "multi.h"
 #include "rx_start.h"
+#include "admin.h"
 
-
+extern Server server;
 static void usage(FILE *fd) {
 	fprintf(fd, "Usage: rx [<parameters>]\n"
 		"Real-time audio receiver over IP\n");
@@ -131,7 +132,10 @@ int main(int argc, char *argv[]) {
 			return -1;
 		}
 	}
-
+	
+	server.start_time = time(NULL);
+	server.pid = getpid();
+	
 	decoder = opus_decoder_create(rate, channels, &error);
 	if (decoder == NULL) {
 		fprintf(stderr, "opus_decoder_create: %s\n",
@@ -179,20 +183,22 @@ int main(int argc, char *argv[]) {
                 clients[i].sock =  0;
                 snprintf(clients[i].ip, 16, " ");
                 snprintf(clients[i].name, 100, " ");
+		clients[i].rate = 0;
+		clients[i].connex_time = 0;
             }
 	}
         
         
 	ortp_init(); //Initialisation oRTPS
 	ortp_scheduler_init();
-	
+	SOCKET adminSock = admin_init_socket();
 	SOCKET mainSock = server_connection_init(instances); //Creation du socket principal
 	
 	if(mainSock > 0) {
-	    server_listen(mainSock, instances, slots, clients);
+	    server_listen(mainSock, instances, slots, clients, adminSock);
 	}
 	
-	socket_close_all(mainSock, slots, instances);
+	socket_close_all(mainSock, clients, instances);
 	
 	for(i=0;i<instances;i++) { //fermeture de toutes les sessions
 	    kill(slots[i].pid, SIGTERM);

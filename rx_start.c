@@ -143,6 +143,7 @@ int server_start_rx(Slot* slot) {
 		    
 	    rxpid = fork(); //nouveau processus
 	    slot->pid = rxpid;
+	    slot->start_time = time(NULL);
 	    if(rxpid == -1) {
 		/* Erreur */
 	    }
@@ -184,6 +185,7 @@ int server_stop_rx(Slot* slot) {
     
     kill(slot->pid, SIGTERM);
     slot->pid = 0;
+    slot->start_time = 0;
     
     return 1;
 }
